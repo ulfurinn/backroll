@@ -2,6 +2,8 @@
 
 Backroll provides interruptible, resumable, and rollbackable data processing pipelines.
 
+[![Build Status](https://travis-ci.org/ulfurinn/backroll.svg?branch=master)](https://travis-ci.org/ulfurinn/backroll)
+
 _Backroll addresses the same fundamental problem as [Sage](https://hex.pm/packages/sage) but it arose out of different procedural requirements, which drove its feature set._
 
 ## Installation
@@ -25,12 +27,12 @@ Define some steps like so:
 ```elixir
 defmodule Step1 do
   @behaviour Backroll.Step
-  
+
   def run(data, step_data) do
     # ...
     {:ok, new_data, new_step_data} # or {:ok, new_data}
   end
-  
+
   def rollback(data, step_data, reason) do
     # ...
     {:ok, new_data, new_step_data} # or {:ok, new_data}
