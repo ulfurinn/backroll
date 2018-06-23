@@ -4,11 +4,11 @@ defmodule Backroll.Step do
   @callback rollback(data :: any(), step_data :: any(), reason :: any()) :: {:ok, any(), any()}
 
   defstruct [
-  	:ref,
-  	:module,
-  	:data,
-  	{:finished, false},
-  	{:rolled_back, false}
+    :ref,
+    :module,
+    :data,
+    {:finished, false},
+    {:rolled_back, false}
   ]
 
   def finished(step),
