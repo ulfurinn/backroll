@@ -53,7 +53,18 @@ defmodule Backroll do
   @spec start(state :: Backroll.t(), supervisor:: pid() | atom()) :: pid() | nil
   def start(state, supervisor) do
     {:ok, pid} = Supervisor.start_child(supervisor, [state])
+    Backroll.Registry.register(state.id, pid)
     Backroll.Sequence.execute(pid)
+  end
+
+  def signal(id, term) do
+    case Backroll.Registry.lookup(id) do
+      pid when is_pid(pid) ->
+        send(pid, {:signal, term})
+        {:ok, pid}
+      _ ->
+        {:error, :noproc}
+    end
   end
 
   def checkpoint(data, step_data) do

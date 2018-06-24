@@ -6,7 +6,9 @@ defmodule Backroll.Application do
   def start(_type, _args) do
     import Supervisor.Spec
 
-    children = []
+    children = [
+      worker(Backroll.Registry, []),
+    ]
 
     opts = [strategy: :one_for_one, name: Backroll.Supervisor]
     Supervisor.start_link(children, opts)

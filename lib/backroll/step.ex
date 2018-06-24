@@ -1,6 +1,6 @@
 defmodule Backroll.Step do
   @callback run(data :: any(), step_data :: any()) ::
-              {:ok | :repeat, any()} | {:ok | :repeat, any(), any()}
+              {:ok | :repeat | :await, any()} | {:ok | :repeat | :await, any(), any()}
   @callback rollback(data :: any(), step_data :: any(), reason :: any()) :: {:ok, any(), any()}
 
   defstruct [

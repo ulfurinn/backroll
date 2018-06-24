@@ -85,6 +85,29 @@ defmodule Backroll.Sequence do
       {:noreply, state}
     end
   end
+  def handle_info({:await, data}, state) do
+    state = %__MODULE__{state | data: data}
+            |> finish_current_step
+    {:noreply, state}
+  end
+  def handle_info({:await, data, step_data}, state) do
+    state = %__MODULE__{state | data: data}
+            |> finish_current_step
+            |> update_current_step_data(step_data)
+    {:noreply, state}
+  end
+
+  def handle_info({:signal, term}, state = %__MODULE__{step_data: step_data}) do
+    step = %Backroll.Step{ref: ref, module: m} = find_next_step(state)
+    sd = if :erlang.function_exported(m, :handle_signal, 2) do
+      m.handle_signal(term, step_data[ref])
+    else
+      term
+    end
+    step_data = Map.put(step_data, ref, sd)
+    state = %__MODULE__{state | step_data: step_data} |> run_next_step
+    {:noreply, state}
+  end
 
   # if the process exits normally, we get a response message
   def handle_info({:DOWN, _, _, pid, :normal}, state) do
