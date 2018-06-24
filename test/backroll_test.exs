@@ -17,6 +17,20 @@ defmodule BackrollTest do
     end
   end
 
+  defmodule Repeater do
+    @behaviour
+
+    def run(data, step_data = {element, count}) do
+      data = [element | data]
+      if length(data) < count do
+        {:repeat, data, step_data}
+      else
+        {:ok, data, step_data}
+      end
+    end
+    def rollback(data, _, _), do: {:ok, data}
+  end
+
   defmodule ListBuilder do
     @behaviour Backroll.Step
 
@@ -34,7 +48,7 @@ defmodule BackrollTest do
     def run(data, a) do
       spawn fn ->
         Process.sleep(100)
-        Backroll.signal("test", a) |> IO.inspect
+        Backroll.signal("test", a)
       end
       {:await, data}
     end
@@ -77,6 +91,12 @@ defmodule BackrollTest do
     assert {:ok, 9} = new(3)
                       |> step(Multiplier, 3)
                       |> run
+  end
+
+  test "a sequence with a repeating step" do
+    assert {:ok, [1, 1, 1]} = new([])
+                              |> step(Repeater, {1, 3})
+                              |> run
   end
 
   test "a sequence with multiple steps" do
