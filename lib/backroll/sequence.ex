@@ -87,8 +87,8 @@ defmodule Backroll.Sequence do
   end
 
   # if the process exits normally, we get a response message
-  def handle_info({:DOWN, _, _, pid, :normal}, state = %__MODULE__{current_step_pid: pid}) do
-    {:noreply, pid}
+  def handle_info({:DOWN, _, _, pid, :normal}, state) do
+    {:noreply, state}
   end
   def handle_info({:DOWN, _, _, pid, {reason, _stacktrace}}, state = %__MODULE__{current_step_pid: pid, current_step_ref: ref}) do
     steps = state.steps

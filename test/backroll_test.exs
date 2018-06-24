@@ -18,6 +18,18 @@ defmodule BackrollTest do
     end
   end
 
+  defmodule ListBuilder do
+    @behaviour Backroll.Step
+
+    def run(data, element) do
+      {:ok, [element | data], element}
+    end
+
+    def rollback([element|tail], element, _) do
+      {:ok, tail}
+    end
+  end
+
   defmodule Crash do
     @behaviour Backroll.Step
 
@@ -26,7 +38,7 @@ defmodule BackrollTest do
     end
 
     def rollback(data, _, reason) do
-      {:ok, :i_failed, reason}
+      {:ok, data, reason}
     end
   end
 
@@ -44,14 +56,31 @@ defmodule BackrollTest do
                       |> run
   end
 
+  test "a sequence with multiple steps" do
+    assert {:ok, [3,2,1]} = Backroll.new("test", [])
+                            |> Backroll.step(ListBuilder, 1)
+                            |> Backroll.step(ListBuilder, 2)
+                            |> Backroll.step(ListBuilder, 3)
+                            |> run
+  end
+
+  test "rollbacks" do
+    assert {:error, [], _} = Backroll.new("test", [])
+                            |> Backroll.step(ListBuilder, 1)
+                            |> Backroll.step(ListBuilder, 2)
+                            |> Backroll.step(ListBuilder, 3)
+                            |> Backroll.step(Crash, fn -> 1 = 2 end)
+                            |> run
+  end
+
   test "a simple sequence crashing with an exit" do
-    assert {:error, :i_failed, {:badmatch, _}} = Backroll.new("test", 3)
+    assert {:error, 3, {:badmatch, _}} = Backroll.new("test", 3)
                                                  |> Backroll.step(Crash, fn -> 1 = 2 end)
                                                  |> run
   end
 
   test "a simple sequence with a raise" do
-    assert {:error, :i_failed, %RuntimeError{message: "hell"}} = Backroll.new("test", 3)
+    assert {:error, 3, %RuntimeError{message: "hell"}} = Backroll.new("test", 3)
                                                                  |> Backroll.step(Crash, fn -> raise "hell" end)
                                                                  |> run
   end
