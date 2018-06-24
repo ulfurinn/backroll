@@ -99,7 +99,7 @@ defmodule Backroll.Sequence do
   end
 
   def handle_info({:signal, term}, state = %__MODULE__{step_data: step_data}) do
-    step = %Backroll.Step{ref: ref, module: m} = find_next_step(state)
+    %Backroll.Step{ref: ref, module: m} = find_next_step(state)
     sd = if :erlang.function_exported(m, :handle_signal, 2) do
       m.handle_signal(term, step_data[ref])
     else
@@ -111,7 +111,7 @@ defmodule Backroll.Sequence do
   end
 
   # if the process exits normally, we get a response message
-  def handle_info({:DOWN, _, _, pid, :normal}, state) do
+  def handle_info({:DOWN, _, _, _, :normal}, state) do
     {:noreply, state}
   end
   def handle_info({:DOWN, _, _, pid, {reason, _stacktrace}}, state = %__MODULE__{current_step_pid: pid, current_step_ref: ref}) do
@@ -138,14 +138,14 @@ defmodule Backroll.Sequence do
     end
   end
 
-  defp find_next_step(state = %__MODULE__{steps: steps, rollback: false}) do
+  defp find_next_step(%__MODULE__{steps: steps, rollback: false}) do
     steps |> Enum.find(fn step -> ! step.finished end)
   end
-  defp find_next_step(state = %__MODULE__{steps: steps, rollback: true}) do
+  defp find_next_step(%__MODULE__{steps: steps, rollback: true}) do
     steps |> Enum.find(fn step -> ! step.rolled_back end)
   end
 
-  defp spawn_step(%Backroll.Step{ref: ref, module: m}, state = %__MODULE__{data: data, step_data: step_data, reason: reason, rollback: rollback}) do
+  defp spawn_step(%Backroll.Step{ref: ref, module: m}, %__MODULE__{data: data, step_data: step_data, reason: reason, rollback: rollback}) do
     seq = self()
     f = fn ->
       :erlang.put(:"$backroll_sequence_pid", seq)
@@ -179,7 +179,7 @@ defmodule Backroll.Sequence do
     end
   end
 
-  defp on_failure(%__MODULE__{on_failure: nil}, _), do: nil
+  defp on_failure(%__MODULE__{on_failure: nil}), do: nil
   defp on_failure(%__MODULE__{on_failure: f, data: d, reason: reason}) when is_function(f) do
     {_, ref} = spawn_monitor fn ->
       f.(d, reason)

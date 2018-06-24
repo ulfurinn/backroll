@@ -30,12 +30,12 @@ defmodule Step1 do
 
   def run(data, step_data) do
     # ...
-    {:ok, new_data, new_step_data} # or {:ok, new_data}
+    {:ok, new_data, new_step_data}
   end
 
   def rollback(data, step_data, reason) do
     # ...
-    {:ok, new_data, new_step_data} # or {:ok, new_data}
+    {:ok, new_data, new_step_data}
   end
 end
 ```

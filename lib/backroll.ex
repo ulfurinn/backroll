@@ -67,6 +67,6 @@ defmodule Backroll do
     end
   end
 
-  def checkpoint(data, step_data) do
+  def checkpoint(_data, _step_data) do
   end
 end
