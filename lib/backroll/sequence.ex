@@ -10,6 +10,7 @@ defmodule Backroll.Sequence do
     :on_success,
     :on_failure,
     {:finished, false},
+    {:awaiting, false},
     :reason,
     {:rollback, false},
     :current_step_pid,
@@ -86,12 +87,12 @@ defmodule Backroll.Sequence do
     end
   end
   def handle_info({:await, data}, state) do
-    state = %__MODULE__{state | data: data}
+    state = %__MODULE__{state | data: data, awaiting: true}
             |> finish_current_step
     {:noreply, state}
   end
   def handle_info({:await, data, step_data}, state) do
-    state = %__MODULE__{state | data: data}
+    state = %__MODULE__{state | data: data, awaiting: true}
             |> finish_current_step
             |> update_current_step_data(step_data)
     {:noreply, state}
@@ -105,7 +106,7 @@ defmodule Backroll.Sequence do
       term
     end
     step_data = Map.put(step_data, ref, sd)
-    state = %__MODULE__{state | step_data: step_data} |> run_next_step
+    state = %__MODULE__{state | step_data: step_data, awaiting: false} |> run_next_step
     {:noreply, state}
   end
 
