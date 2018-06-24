@@ -42,6 +42,15 @@ defmodule BackrollTest do
     end
   end
 
+  defmodule Delayer do
+    @behaviour Backroll.Step
+
+    def run(data, delay) do
+      {{:delay, delay}, data}
+    end
+    def rollback(data, _), do: {:ok, data}
+  end
+
   defmodule AwaitSender do
     @behaviour Backroll.Step
 
@@ -105,6 +114,16 @@ defmodule BackrollTest do
                             |> step(ListBuilder, 2)
                             |> step(ListBuilder, 3)
                             |> run
+  end
+
+  test "a sequence with a delay" do
+    {time, _} = :timer.tc fn ->
+      assert {:ok, 4} = new(2)
+                        |> step(Delayer, 250)
+                        |> step(Multiplier)
+                        |> run
+    end
+    assert time >= 250000
   end
 
   test "rollbacks" do

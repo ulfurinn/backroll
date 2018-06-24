@@ -97,7 +97,24 @@ defmodule Backroll.Sequence do
             |> update_current_step_data(step_data)
     {:noreply, state}
   end
+  def handle_info({{:delay, millis}, data}, state) do
+    state = %__MODULE__{state | data: data}
+            |> finish_current_step
+    :erlang.send_after(millis, self(), {:signal, :timeout})
+    {:noreply, state}
+  end
+  def handle_info({{:delay, millis}, data, step_data}, state) do
+    state = %__MODULE__{state | data: data}
+            |> finish_current_step
+            |> update_current_step_data(step_data)
+    :erlang.send_after(millis, self(), {:signal, :timeout})
+    {:noreply, state}
+  end
 
+  def handle_info({:signal, :timeout}, state = %__MODULE__{}) do
+    state = state |> run_next_step
+    {:noreply, state}
+  end
   def handle_info({:signal, term}, state = %__MODULE__{step_data: step_data}) do
     %Backroll.Step{ref: ref, module: m} = find_next_step(state)
     sd = if :erlang.function_exported(m, :handle_signal, 2) do

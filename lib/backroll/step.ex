@@ -1,10 +1,15 @@
 defmodule Backroll.Step do
+
+  @type next_action :: :ok | :repeat | :await | {:delay, integer()}
+
   @doc """
   Executes the step action.
 
   A two-element tuple will preserve the private step data, a three-element tuple will replace it with the new value.
 
-  Returning `:ok` will finish the step and run the next one, if any.
+  Returning `:ok` will execute the next one, if any.
+
+  Returning `{:delay, n}` will execute the next step after `n` milliseconds.
 
   Returning `:repeat` will run the same step again with the updated data and step data.
   This can be useful when the step performs multiple lengthy operations sequentially,
@@ -16,7 +21,7 @@ defmodule Backroll.Step do
   The optional callback `c:handle_signal/2` can be used to merge it with the step data provided during sequence construction.
   """
   @callback run(data :: any(), step_data :: any()) ::
-              {:ok | :repeat | :await, data :: any()} | {:ok | :repeat | :await, data :: any(), step_data :: any()}
+              {next_action(), data :: any()} | {next_action(), data :: any(), step_data :: any()}
 
   @doc """
   Tries to cancel the action performed in `c:run/2`.
