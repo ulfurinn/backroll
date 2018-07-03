@@ -1,6 +1,6 @@
 defmodule Backroll.Step do
 
-  @type next_action :: :ok | :repeat | :await | {:delay, integer()}
+  @type next_action :: :ok | :repeat | :await | {:delay, pos_integer()}
 
   @doc """
   Executes the step action.

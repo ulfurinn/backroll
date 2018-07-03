@@ -15,6 +15,7 @@ defmodule Backroll.Sequence do
     {:rollback, false},
     :current_step_pid,
     :current_step_ref,
+    {:signals, []},
   ]
 
   def start_link(spec) do
@@ -89,12 +90,14 @@ defmodule Backroll.Sequence do
   def handle_info({:await, data}, state) do
     state = %__MODULE__{state | data: data, awaiting: true}
             |> finish_current_step
+            |> apply_queued_signals
     {:noreply, state}
   end
   def handle_info({:await, data, step_data}, state) do
     state = %__MODULE__{state | data: data, awaiting: true}
             |> finish_current_step
             |> update_current_step_data(step_data)
+            |> apply_queued_signals
     {:noreply, state}
   end
   def handle_info({{:delay, millis}, data}, state) do
@@ -115,16 +118,12 @@ defmodule Backroll.Sequence do
     state = state |> run_next_step
     {:noreply, state}
   end
-  def handle_info({:signal, term}, state = %__MODULE__{step_data: step_data}) do
-    %Backroll.Step{ref: ref, module: m} = find_next_step(state)
-    sd = if :erlang.function_exported(m, :handle_signal, 2) do
-      m.handle_signal(term, step_data[ref])
-    else
-      term
-    end
-    step_data = Map.put(step_data, ref, sd)
-    state = %__MODULE__{state | step_data: step_data, awaiting: false} |> run_next_step
+  def handle_info({:signal, term}, state = %__MODULE__{awaiting: true}) do
+    state = term |> apply_signal(state)
     {:noreply, state}
+  end
+  def handle_info({:signal, term}, state = %__MODULE__{signals: signals}) do
+    {:noreply, %__MODULE__{state | signals: signals ++ [term]}}
   end
 
   # if the process exits normally, we get a response message
@@ -138,6 +137,29 @@ defmodule Backroll.Sequence do
     state = %__MODULE__{state | steps: steps, reason: reason, rollback: true}
             |> run_next_step
     {:noreply, state}
+  end
+
+  def handle_info(message, state) do
+    Logger.error("unexpected message #{inspect message}")
+    {:noreply, state}
+  end
+
+  defp apply_signal(signal, state = %__MODULE__{step_data: step_data}) do
+    %Backroll.Step{ref: ref, module: m} = find_next_step(state)
+    sd = if function_exported?(m, :handle_signal, 2) do
+      m.handle_signal(signal, step_data[ref])
+    else
+      signal
+    end
+    step_data = Map.put(step_data, ref, sd)
+    %__MODULE__{state | step_data: step_data, awaiting: false} |> run_next_step
+  end
+
+  defp apply_queued_signals(state = %__MODULE__{signals: []}),
+    do: state
+  defp apply_queued_signals(state = %__MODULE__{signals: [signal]}) do
+    state = signal |> apply_signal(state)
+    %__MODULE__{state | signals: []}
   end
 
   defp run_next_step(state = %__MODULE__{rollback: rollback}) do

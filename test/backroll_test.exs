@@ -18,7 +18,7 @@ defmodule BackrollTest do
   end
 
   defmodule Repeater do
-    @behaviour
+    @behaviour Backroll.Step
 
     def run(data, step_data = {element, count}) do
       data = [element | data]
@@ -48,12 +48,20 @@ defmodule BackrollTest do
     def run(data, delay) do
       {{:delay, delay}, data}
     end
-    def rollback(data, _), do: {:ok, data}
+    def rollback(data, _, _), do: {:ok, data}
   end
 
   defmodule AwaitSender do
     @behaviour Backroll.Step
 
+    def run(data, {delay, a}) do
+      spawn fn ->
+        Process.sleep(100)
+        Backroll.signal("test", a)
+      end
+      Process.sleep(delay)
+      {:await, data}
+    end
     def run(data, a) do
       spawn fn ->
         Process.sleep(100)
@@ -150,6 +158,13 @@ defmodule BackrollTest do
   test "a sequence with an await step" do
     assert {:ok, %{first: 5, second: 2}} = new(%{})
                       |> step(AwaitSender, 5)
+                      |> step(AwaitReceiver, 2)
+                      |> run
+  end
+
+  test "a sequence with an await step where a signal arrives before the step end" do
+    assert {:ok, %{first: 5, second: 2}} = new(%{})
+                      |> step(AwaitSender, {500, 5})
                       |> step(AwaitReceiver, 2)
                       |> run
   end
