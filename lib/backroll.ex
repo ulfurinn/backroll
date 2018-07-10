@@ -9,6 +9,7 @@ defmodule Backroll do
     {:steps, []},
     :on_success,
     :on_failure,
+    :persistence_mod,
   ]
 
   @opaque t :: %Backroll{}
@@ -50,9 +51,13 @@ defmodule Backroll do
     %__MODULE__{state | on_failure: fun}
   end
 
+  def persist(state, mod \\ :default) do
+    %__MODULE__{state | persistence_mod: persistence_mod(mod)}
+  end
+
   @spec start(state :: Backroll.t(), supervisor:: pid() | atom()) :: pid() | nil
   def start(state, supervisor) do
-    {:ok, pid} = Supervisor.start_child(supervisor, [state])
+    {:ok, pid} = Supervisor.start_child(supervisor, [{:new, state}])
     Backroll.Registry.register(state.id, pid)
     Backroll.Sequence.execute(pid)
   end
@@ -67,6 +72,13 @@ defmodule Backroll do
     end
   end
 
+  def load(mod \\ :default) do
+
+  end
+
   def checkpoint(_data, _step_data) do
   end
+
+  defp persistence_mod(:default), do: Application.get_env(:ulfnet_backroll, :persistence, []) |> Keyword.get(:module)
+  defp persistence_mod(m) when is_atom(m), do: m
 end

@@ -6,7 +6,14 @@ defmodule Backroll.Application do
   def start(_type, _args) do
     import Supervisor.Spec
 
-    children = [
+    persistence = Application.get_env(:ulfnet_backroll, :persistence, [])
+    persistence_spec = if persistence[:supervise] do
+      [worker(persistence[:module], persistence[:args])]
+    else
+      []
+    end
+
+    children = persistence_spec ++ [
       worker(Backroll.Registry, []),
     ]
 

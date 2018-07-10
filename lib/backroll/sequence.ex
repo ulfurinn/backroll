@@ -16,16 +16,17 @@ defmodule Backroll.Sequence do
     :current_step_pid,
     :current_step_ref,
     {:signals, []},
+    :persistence_mod,
   ]
 
-  def start_link(spec) do
-    GenServer.start_link(__MODULE__, [spec])
+  def start_link(spec_or_continuation) do
+    GenServer.start_link(__MODULE__, [spec_or_continuation])
   end
 
   def execute(pid),
     do: GenServer.call(pid, :execute)
 
-  def init([spec]) do
+  def init([{:new, spec}]) do
     Process.flag(:trap_exit, true)
     state = %__MODULE__{
       id: spec.id,
@@ -33,8 +34,14 @@ defmodule Backroll.Sequence do
       steps: spec.steps,
       step_data: spec.steps |> collect_initial_data,
       on_success: spec.on_success,
-      on_failure: spec.on_failure
+      on_failure: spec.on_failure,
+      persistence_mod: spec.persistence_mod,
     }
+    {:ok, state}
+  end
+  def init([{:continuation, spec}]) do
+    Process.flag(:trap_exit, true)
+    state = %__MODULE__{} |> Map.merge(spec)
     {:ok, state}
   end
 
@@ -51,6 +58,7 @@ defmodule Backroll.Sequence do
     state = %__MODULE__{state | data: data}
             |> finish_current_step
             |> run_next_step
+            |> persist
     if state.finished do
       {:stop, :normal, state}
     else
@@ -62,6 +70,7 @@ defmodule Backroll.Sequence do
             |> finish_current_step
             |> update_current_step_data(step_data)
             |> run_next_step
+            |> persist
     if state.finished do
       {:stop, :normal, state}
     else
@@ -71,6 +80,7 @@ defmodule Backroll.Sequence do
   def handle_info({:repeat, data}, state) do
     state = %__MODULE__{state | data: data}
             |> run_next_step
+            |> persist
     if state.finished do
       {:stop, :normal, state}
     else
@@ -81,6 +91,7 @@ defmodule Backroll.Sequence do
     state = %__MODULE__{state | data: data}
             |> update_current_step_data(step_data)
             |> run_next_step
+            |> persist
     if state.finished do
       {:stop, :normal, state}
     else
@@ -91,6 +102,7 @@ defmodule Backroll.Sequence do
     state = %__MODULE__{state | data: data, awaiting: true}
             |> finish_current_step
             |> apply_queued_signals
+            |> persist
     {:noreply, state}
   end
   def handle_info({:await, data, step_data}, state) do
@@ -98,11 +110,13 @@ defmodule Backroll.Sequence do
             |> finish_current_step
             |> update_current_step_data(step_data)
             |> apply_queued_signals
+            |> persist
     {:noreply, state}
   end
   def handle_info({{:delay, millis}, data}, state) do
     state = %__MODULE__{state | data: data}
             |> finish_current_step
+            |> persist
     :erlang.send_after(millis, self(), {:signal, :timeout})
     {:noreply, state}
   end
@@ -110,20 +124,27 @@ defmodule Backroll.Sequence do
     state = %__MODULE__{state | data: data}
             |> finish_current_step
             |> update_current_step_data(step_data)
+            |> persist
     :erlang.send_after(millis, self(), {:signal, :timeout})
     {:noreply, state}
   end
 
   def handle_info({:signal, :timeout}, state = %__MODULE__{}) do
-    state = state |> run_next_step
+    state = state
+            |> run_next_step
+            |> persist
     {:noreply, state}
   end
   def handle_info({:signal, term}, state = %__MODULE__{awaiting: true}) do
-    state = term |> apply_signal(state)
+    state = term
+            |> apply_signal(state)
+            |> persist
     {:noreply, state}
   end
   def handle_info({:signal, term}, state = %__MODULE__{signals: signals}) do
-    {:noreply, %__MODULE__{state | signals: signals ++ [term]}}
+    state = %__MODULE__{state | signals: signals ++ [term]}
+            |> persist
+    {:noreply, state}
   end
 
   # if the process exits normally, we get a response message
@@ -136,6 +157,7 @@ defmodule Backroll.Sequence do
             |> Enum.drop_while(fn step -> step.ref != ref end)
     state = %__MODULE__{state | steps: steps, reason: reason, rollback: true}
             |> run_next_step
+            |> persist
     {:noreply, state}
   end
 
@@ -152,7 +174,8 @@ defmodule Backroll.Sequence do
       signal
     end
     step_data = Map.put(step_data, ref, sd)
-    %__MODULE__{state | step_data: step_data, awaiting: false} |> run_next_step
+    %__MODULE__{state | step_data: step_data, awaiting: false}
+    |> run_next_step
   end
 
   defp apply_queued_signals(state = %__MODULE__{signals: []}),
@@ -162,6 +185,7 @@ defmodule Backroll.Sequence do
     %__MODULE__{state | signals: []}
   end
 
+  defp run_next_step(state = %__MODULE__{finished: true}), do: state
   defp run_next_step(state = %__MODULE__{rollback: rollback}) do
     case find_next_step(state) do
       nil ->
@@ -259,4 +283,23 @@ defmodule Backroll.Sequence do
   defp collect_initial_data(steps) do
     steps |> Enum.reduce(%{}, fn step, acc -> Map.put(acc, step.ref, step.data) end)
   end
+
+  defp persist(state = %__MODULE__{persistence_mod: nil}), do: state
+  defp persist(state = %__MODULE__{persistence_mod: m}) do
+    m.save(state.id, remove_transient_fields(state))
+    state
+  end
+
+  defp remove_transient_fields(state = %__MODULE__{}) do
+    %__MODULE__{
+      state |
+      on_success: filter_callback(state.on_success),
+      on_failure: filter_callback(state.on_failure),
+      current_step_ref: nil,
+      current_step_pid: nil,
+    }
+  end
+
+  defp filter_callback(f) when is_function(f), do: nil
+  defp filter_callback(x), do: x
 end

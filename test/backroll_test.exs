@@ -101,6 +101,7 @@ defmodule BackrollTest do
   test "a simple sequence" do
     assert {:ok, 6} = new(3)
                       |> step(Multiplier)
+                      |> persist
                       |> run
   end
 
@@ -179,6 +180,7 @@ defmodule BackrollTest do
   defp new(initial), do: Backroll.new("test", initial)
   defp step(state, step), do: Backroll.step(state, step)
   defp step(state, step, data), do: Backroll.step(state, step, data)
+  defp persist(state), do: Backroll.persist(state)
 
   defp run(backroll) do
     test = self()

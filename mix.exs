@@ -3,7 +3,7 @@ defmodule Backroll.MixProject do
 
   def project do
     [
-      app: :backroll,
+      app: :ulfnet_backroll,
       version: "1.0.0",
       elixir: "~> 1.4",
       start_permanent: Mix.env() == :prod,
