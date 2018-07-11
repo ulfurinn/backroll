@@ -65,7 +65,7 @@ defmodule Backroll do
   def signal(id, term) do
     case Backroll.Registry.lookup(id) do
       pid when is_pid(pid) ->
-        send(pid, {:signal, term})
+        Backroll.Sequence.signal(pid, term)
         {:ok, pid}
       _ ->
         {:error, :noproc}
