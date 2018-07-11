@@ -11,7 +11,7 @@ defmodule Backroll.Sequence do
     :on_failure,
     {:finished, false},
     {:awaiting, false},
-    :reason,
+    {:reason, :normal},
     {:rollback, false},
     :current_step_pid,
     :current_step_ref,
@@ -68,79 +68,14 @@ defmodule Backroll.Sequence do
     {:reply, nil, state}
   end
 
-  def handle_info({:"$backroll", :step_reply, {:ok, data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> finish_current_step
-            |> run_next_step
-            |> persist
+
+  def handle_info({:"$backroll", :step_reply, reply}, state) do
+    state = handle_step_reply(reply, state)
     if state.finished do
-      {:stop, :normal, state}
+      {:stop, state.reason, state}
     else
       {:noreply, state}
     end
-  end
-  def handle_info({:"$backroll", :step_reply, {:ok, data, step_data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> finish_current_step
-            |> update_current_step_data(step_data)
-            |> run_next_step
-            |> persist
-    if state.finished do
-      {:stop, :normal, state}
-    else
-      {:noreply, state}
-    end
-  end
-  def handle_info({:"$backroll", :step_reply, {:repeat, data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> run_next_step
-            |> persist
-    if state.finished do
-      {:stop, :normal, state}
-    else
-      {:noreply, state}
-    end
-  end
-  def handle_info({:"$backroll", :step_reply, {:repeat, data, step_data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> update_current_step_data(step_data)
-            |> run_next_step
-            |> persist
-    if state.finished do
-      {:stop, :normal, state}
-    else
-      {:noreply, state}
-    end
-  end
-  def handle_info({:"$backroll", :step_reply, {:await, data}}, state) do
-    state = %__MODULE__{state | data: data, awaiting: true}
-            |> finish_current_step
-            |> apply_queued_signals
-            |> persist
-    {:noreply, state}
-  end
-  def handle_info({:"$backroll", :step_reply, {:await, data, step_data}}, state) do
-    state = %__MODULE__{state | data: data, awaiting: true}
-            |> finish_current_step
-            |> update_current_step_data(step_data)
-            |> apply_queued_signals
-            |> persist
-    {:noreply, state}
-  end
-  def handle_info({:"$backroll", :step_reply, {{:delay, millis}, data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> finish_current_step
-            |> persist
-    :erlang.send_after(millis, self(), {:"$backroll", :delay_wakeup})
-    {:noreply, state}
-  end
-  def handle_info({:"$backroll", :step_reply, {{:delay, millis}, data, step_data}}, state) do
-    state = %__MODULE__{state | data: data}
-            |> finish_current_step
-            |> update_current_step_data(step_data)
-            |> persist
-    :erlang.send_after(millis, self(), {:"$backroll", :delay_wakeup})
-    {:noreply, state}
   end
 
   def handle_info({:"$backroll", :delay_wakeup}, state = %__MODULE__{}) do
@@ -167,6 +102,44 @@ defmodule Backroll.Sequence do
   def handle_info(message, state) do
     Logger.error("unexpected message #{inspect message}")
     {:noreply, state}
+  end
+
+  defp handle_step_reply(reply, state)
+  defp handle_step_reply({action, data}, state) do
+    state
+    |> update_data(data)
+    |> handle_step_reply_action(action)
+    |> persist
+  end
+  defp handle_step_reply({action, data, step_data}, state) do
+    state
+    |> update_data(data)
+    |> update_current_step_data(step_data)
+    |> handle_step_reply_action(action)
+    |> persist
+  end
+
+  defp handle_step_reply_action(state, :ok) do
+    state
+    |> finish_current_step
+    |> run_next_step
+  end
+
+  defp handle_step_reply_action(state, :repeat) do
+    state
+    |> run_next_step
+  end
+
+  defp handle_step_reply_action(state, :await) do
+    %__MODULE__{state | awaiting: true}
+    |> finish_current_step
+    |> apply_queued_signals
+  end
+
+  defp handle_step_reply_action(state, {:delay, millis}) do
+    :erlang.send_after(millis, self(), {:"$backroll", :delay_wakeup})
+    state
+    |> finish_current_step
   end
 
   defp apply_signal(signal, state = %__MODULE__{step_data: step_data}) do
@@ -277,6 +250,9 @@ defmodule Backroll.Sequence do
     end)
     %__MODULE__{state | steps: steps}
   end
+
+  defp update_data(state, data),
+    do: %__MODULE__{state | data: data}
 
   defp update_current_step_data(state, data) do
     step_data = state.step_data |> Map.put(state.current_step_ref, data)
