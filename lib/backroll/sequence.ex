@@ -57,8 +57,8 @@ defmodule Backroll.Sequence do
     end
   end
   def handle_call({:signal, term}, _, state = %__MODULE__{awaiting: true}) do
-    state = term
-            |> apply_signal(state)
+    state = state
+            |> apply_signal(term)
             |> persist
     {:reply, nil, state}
   end
@@ -86,22 +86,36 @@ defmodule Backroll.Sequence do
   end
 
   # if the process exits normally, we get a response message
-  def handle_info({:DOWN, _, _, _, :normal}, state) do
-    {:noreply, state}
+  def handle_info({:DOWN, _, _, pid, :normal}, state = %__MODULE__{current_step_pid: pid}) do
+    {:noreply, %__MODULE__{state | current_step_pid: nil, current_step_ref: nil}}
   end
-  def handle_info({:DOWN, _, _, pid, {reason, _stacktrace}}, state = %__MODULE__{current_step_pid: pid, current_step_ref: ref}) do
-    steps = state.steps
-            |> Enum.reverse
-            |> Enum.drop_while(fn step -> step.ref != ref end)
-    state = %__MODULE__{state | steps: steps, reason: reason, rollback: true}
+  def handle_info({:DOWN, _, _, pid, {reason, _stacktrace}}, state = %__MODULE__{current_step_pid: pid}) do
+    state = state
+            |> reverse_on_crash(reason)
             |> run_next_step
             |> persist
     {:noreply, state}
   end
+  def handle_info({:DOWN, _, _, _, _}, state),
+    do: {:noreply, state}
 
   def handle_info(message, state) do
     Logger.error("unexpected message #{inspect message}")
     {:noreply, state}
+  end
+
+  def terminate(_, %__MODULE__{current_step_pid: nil}) do
+    nil
+  end
+  def terminate(_, state = %__MODULE__{current_step_pid: pid}) do
+    case wait_for_down(pid) do
+      :normal ->
+        process_last_message(state)
+      reason ->
+        state
+        |> reverse_on_crash(reason)
+        |> persist
+    end
   end
 
   defp handle_step_reply(reply, state)
@@ -142,7 +156,56 @@ defmodule Backroll.Sequence do
     |> finish_current_step
   end
 
-  defp apply_signal(signal, state = %__MODULE__{step_data: step_data}) do
+  defp wait_for_down(pid) do
+    receive do
+      {:DOWN, _, _, ^pid, reason} ->
+        case reason do
+          {reason, _stacktrace} ->
+            reason
+          reason ->
+            reason
+        end
+    end
+  end
+
+  defp process_last_message(state) do
+    receive do
+      {:"$backroll", :step_reply, reply} ->
+        {action, state} = case reply do
+          {action, data} ->
+            state = state |> update_data(data)
+            {action, state}
+          {action, data, step_data} ->
+            state = state |> update_data(data) |> update_current_step_data(step_data)
+            {action, state}
+        end
+        state = case action do
+          :ok ->
+            state |> finish_current_step
+          :repeat ->
+            state
+          {:delay, _} ->
+            state
+          :await ->
+            case state.signals do
+              [signal] ->
+                state |> finish_current_step |> apply_signal_no_run(signal)
+              _ ->
+                state |> finish_current_step
+            end
+        end
+        state |> persist
+    end
+  end
+
+  defp reverse_on_crash(state = %__MODULE__{steps: steps, current_step_ref: ref}, reason) do
+    steps = steps
+            |> Enum.reverse
+            |> Enum.drop_while(fn step -> step.ref != ref end)
+    %__MODULE__{state | steps: steps, reason: reason, rollback: true}
+  end
+
+  defp apply_signal_no_run(state = %__MODULE__{step_data: step_data}, signal) do
     %Backroll.Step{ref: ref, module: m} = find_next_step(state)
     sd = if function_exported?(m, :handle_signal, 2) do
       m.handle_signal(signal, step_data[ref])
@@ -151,17 +214,21 @@ defmodule Backroll.Sequence do
     end
     step_data = Map.put(step_data, ref, sd)
     %__MODULE__{state | step_data: step_data, awaiting: false}
+  end
+  defp apply_signal(state = %__MODULE__{}, signal) do
+    apply_signal_no_run(state, signal)
     |> run_next_step
   end
 
   defp apply_queued_signals(state = %__MODULE__{signals: []}),
     do: state
   defp apply_queued_signals(state = %__MODULE__{signals: [signal]}) do
-    state = signal |> apply_signal(state)
+    state = state |> apply_signal(signal)
     %__MODULE__{state | signals: []}
   end
 
   defp run_next_step(state = %__MODULE__{finished: true}), do: state
+  defp run_next_step(state = %__MODULE__{awaiting: true}), do: state
   defp run_next_step(state = %__MODULE__{rollback: rollback}) do
     case find_next_step(state) do
       nil ->
@@ -248,7 +315,7 @@ defmodule Backroll.Sequence do
           step
       end
     end)
-    %__MODULE__{state | steps: steps}
+    %__MODULE__{state | steps: steps, current_step_ref: nil, current_step_pid: nil}
   end
 
   defp update_data(state, data),
